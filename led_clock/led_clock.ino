@@ -1,23 +1,28 @@
 
+
+
 #include <avr/power.h>
 #include <Bounce2.h>
+#include <I2C.h>
 
-#define h_buttonPin A0
-#define min_buttonPin A1
+#define down_buttonPin A0
+#define up_buttonPin A1
 
-Bounce h_button = Bounce();
-Bounce min_button = Bounce();
+#define rtcAddr 0x68
+
+Bounce down_button = Bounce();
+Bounce up_button = Bounce();
 
 Bounce debouncer = Bounce(); 
 
-boolean h_buttonChanged;
-boolean min_buttonChanged;
+boolean down_buttonChanged;
+boolean up_buttonChanged;
 
-boolean h_buttonState;
-boolean min_buttonState;
+boolean down_buttonState;
+boolean up_buttonState;
 
-unsigned long h_buttonPressTimeStamp;
-unsigned long min_buttonPressTimeStamp;
+unsigned long down_buttonPressTimeStamp;
+unsigned long up_buttonPressTimeStamp;
 
 byte minute = 0;
 byte tenMinute = 0;
@@ -29,9 +34,6 @@ unsigned long prevMillis;
 unsigned long currentMillis;
 
 
-
-
-
 void setup() {
   //disable adc
   power_adc_disable();
@@ -39,82 +41,101 @@ void setup() {
   DDRB = 0x02;
   PORTB = 0xfd;
   
-  pinMode(h_buttonPin,INPUT);
-  pinMode(min_buttonPin,INPUT);
+  DDRC = 0x00;
+  PORTB = 0xfc;
   
   DDRD = 0xff;
   PORTD = 0x00;
   
   //set up debouncer
-  h_button.attach(h_buttonPin);
-  h_button.interval(1);
+  down_button.attach(down_buttonPin);
+  down_button.interval(1);
   
-  min_button.attach(min_buttonPin);
-  min_button.interval(1);
+  up_button.attach(up_buttonPin);
+  up_button.interval(1);
+  
+  //initialize I2c
+  I2c.begin();
+  I2c.setSpeed(0);
+  I2c.pullup(0);
+  I2c.timeOut(0);
+  
+  //setup DS1307 RTC
+  I2c.write(rtcAddr, 0x00);
+  I2c.read(rtcAddr, 1);
+  if(I2c.receive() ^ 0x80 == 0x80) {
+    //enable the clock
+    I2c.write(rtcAddr, 0x00, 0x00);
+    //set 24 hour mode
+    I2c.write(rtcAddr, 0x01, 0x00);
+    //disable squarewave output
+    I2c.write(rtcAddr, 0x07, 0x00);
+  }else {
+    getTime();
+  }
 }
 
 void loop() {
-  dispTime();
-}
 
-void dispTime() {
-  
   currentMillis = millis();
   
   //update debouncer
-  h_buttonChanged = h_button.update();
-  min_buttonChanged = min_button.update();
+  down_buttonChanged = down_button.update();
+  up_buttonChanged = up_button.update();
   
-  if(h_buttonChanged) {
-    if(h_button.read()) {
-      h_buttonState = 0;
-      //update time here
+  if(down_buttonChanged) {
+    if(down_button.read()) {
+      down_buttonState = 0;
+      
+      setTime();
       
     }else {
-      h_buttonState = 1;
-      h_buttonPressTimeStamp = currentMillis;
-      incrHour();
+      down_buttonState = 1;
+      down_buttonPressTimeStamp = currentMillis;
+      decrMinute();
     }
   }
   
-  if(min_buttonChanged) {
-    if(min_button.read()) {
-      min_buttonState = 0;
+  if(up_buttonChanged) {
+    if(up_button.read()) {
+      up_buttonState = 0;
       
-      //update time here
+      setTime();
       
     }else {
-      min_buttonState = 1;
-      min_buttonPressTimeStamp = currentMillis;
+      up_buttonState = 1;
+      up_buttonPressTimeStamp = currentMillis;
       incrMinute();
     }
   }
   
-  if  ( h_buttonState == 1 ) {
-    if ( currentMillis - h_buttonPressTimeStamp >= 500 ) {
-      h_buttonPressTimeStamp = currentMillis;
-      incrHour();
+  if  ( down_buttonState == 1 ) {
+    if ( currentMillis - down_buttonPressTimeStamp >= 10 ) {
+      down_buttonPressTimeStamp = currentMillis;
+      decrMinute();
     }
   }
   
-  if  ( min_buttonState == 1 ) {
-    if ( currentMillis - min_buttonPressTimeStamp >= 100 ) {
-      min_buttonPressTimeStamp = currentMillis;
+  if  ( up_buttonState == 1 ) {
+    if ( currentMillis - up_buttonPressTimeStamp >= 10 ) {
+      up_buttonPressTimeStamp = currentMillis;
       incrMinute();       
     }
   }
   
-  
-  
   if(currentMillis - prevMillis >= blinkInterval) {
     prevMillis = currentMillis;
     
-    //update the time here
+    getTime();
     
     //blink the doublepoint at 0.5Hz
     PORTB = PINB ^ 0x02;
   }
  
+  dispTime();
+}
+
+void dispTime() {
   //display the time
   PORTD = 0b00010000 ^ minute;
   delay(1);
@@ -128,16 +149,30 @@ void dispTime() {
 
 void incrMinute(){
   if(minute < 9) {
-        minute++;
-      }else {
-        minute = 0;
-        if(tenMinute < 5){
-          tenMinute++;
-        }else {
-          tenMinute = 0;
-          incrHour;
-        }
-      }
+    minute++;
+  }else {
+    minute = 0;
+    if(tenMinute < 5){
+      tenMinute++;
+    }else {
+      tenMinute = 0;
+      incrHour();
+    }
+  }
+}
+
+void decrMinute() {
+  if(minute > 0) {
+    minute--;
+  }else {
+    minute = 9;
+    if(tenMinute > 0){
+      tenMinute--;
+    }else {
+      tenMinute = 5;
+      decrHour();
+    }
+  }
 }
 
 void incrHour() {
@@ -156,4 +191,46 @@ void incrHour() {
       tenHour = 0;
     }
   }
+}
+
+void decrHour() {
+  if(hour > 0){
+    hour--;
+  }else {
+    if(tenHour > 0){
+      tenHour--;
+      hour = 9;
+    }else {
+      tenHour = 2;
+      hour = 3;
+    }
+  }
+}
+
+void setTime() {
+  int rtcMinute;
+  int rtcHour;
+  
+  rtcMinute = (tenMinute << 4) ^ minute;
+  rtcHour = (tenHour << 4) ^ hour;
+  
+  I2c.write(rtcAddr, 0x01, rtcMinute);
+  I2c.write(rtcAddr, 0x02, rtcHour);
+}
+
+void getTime() {
+  int rtcMinute;
+  int rtcHour;
+  
+  //read the current time
+  I2c.write(rtcAddr, 0x01);
+  I2c.read(rtcAddr, 2);
+  
+  rtcMinute = I2c.receive();
+  rtcHour = I2c.receive();
+  
+  minute = rtcMinute & 0x0f;
+  tenMinute = rtcMinute >> 4;
+  hour = rtcHour & 0x0f;
+  tenHour = rtcHour >> 4;
 }
