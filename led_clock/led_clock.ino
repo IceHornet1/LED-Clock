@@ -24,6 +24,9 @@ boolean up_buttonState;
 unsigned long down_buttonPressTimeStamp;
 unsigned long up_buttonPressTimeStamp;
 
+unsigned long down_buttonPressTimeStart;
+unsigned long up_buttonPressTimeStart;
+
 byte minute = 0;
 byte tenMinute = 0;
 byte hour = 0;
@@ -63,16 +66,15 @@ void setup() {
   //setup DS1307 RTC
   I2c.write(rtcAddr, 0x00);
   I2c.read(rtcAddr, 1);
-  if(I2c.receive() ^ 0x80 == 0x80) {
+  if(I2c.receive() & 0x80 == 0x80) {
     //enable the clock
     I2c.write(rtcAddr, 0x00, 0x00);
     //set 24 hour mode
-    I2c.write(rtcAddr, 0x01, 0x00);
+    //I2c.write(rtcAddr, 0x02, 0x00);
     //disable squarewave output
     I2c.write(rtcAddr, 0x07, 0x00);
-  }else {
-    getTime();
   }
+  getTime();
 }
 
 void loop() {
@@ -92,6 +94,7 @@ void loop() {
     }else {
       down_buttonState = 1;
       down_buttonPressTimeStamp = currentMillis;
+      down_buttonPressTimeStart = currentMillis;
       decrMinute();
     }
   }
@@ -105,28 +108,55 @@ void loop() {
     }else {
       up_buttonState = 1;
       up_buttonPressTimeStamp = currentMillis;
+      up_buttonPressTimeStart = currentMillis;;
       incrMinute();
     }
   }
   
-  if  ( down_buttonState == 1 ) {
-    if ( currentMillis - down_buttonPressTimeStamp >= 10 ) {
-      down_buttonPressTimeStamp = currentMillis;
-      decrMinute();
+  if  (down_buttonState == 1) {
+    if(currentMillis - down_buttonPressTimeStart >= 3500) {
+      if (currentMillis - down_buttonPressTimeStamp >= 7) {
+        down_buttonPressTimeStamp = currentMillis;
+        decrMinute();
+      }
+    }else if(currentMillis - down_buttonPressTimeStart >= 1500) {
+      if (currentMillis - down_buttonPressTimeStamp >= 100) {
+        down_buttonPressTimeStamp = currentMillis;
+        decrMinute();
+      }
+    }else {
+      if (currentMillis - down_buttonPressTimeStamp >= 400) {
+        down_buttonPressTimeStamp = currentMillis;
+        decrMinute();
+      }
     }
   }
   
   if  ( up_buttonState == 1 ) {
-    if ( currentMillis - up_buttonPressTimeStamp >= 10 ) {
-      up_buttonPressTimeStamp = currentMillis;
-      incrMinute();       
+    if(currentMillis - up_buttonPressTimeStart >= 3500) {
+      if ( currentMillis - up_buttonPressTimeStamp >= 7) {
+        up_buttonPressTimeStamp = currentMillis;
+        incrMinute();       
+      }
+    }else if(currentMillis - up_buttonPressTimeStart >= 1500) {
+      if (currentMillis - up_buttonPressTimeStamp >= 100) {
+        up_buttonPressTimeStamp = currentMillis;
+        incrMinute();       
+      }
+    }else {
+      if (currentMillis - up_buttonPressTimeStamp >= 400) {
+        up_buttonPressTimeStamp = currentMillis;
+        incrMinute();       
+      }
     }
   }
   
   if(currentMillis - prevMillis >= blinkInterval) {
     prevMillis = currentMillis;
     
-    getTime();
+    if(down_buttonState == 0 && up_buttonState == 0) {
+      getTime();
+    }
     
     //blink the doublepoint at 0.5Hz
     PORTB = PINB ^ 0x02;
@@ -214,6 +244,7 @@ void setTime() {
   rtcMinute = (tenMinute << 4) ^ minute;
   rtcHour = (tenHour << 4) ^ hour;
   
+  I2c.write(rtcAddr, 0x00, 0x00);
   I2c.write(rtcAddr, 0x01, rtcMinute);
   I2c.write(rtcAddr, 0x02, rtcHour);
 }
