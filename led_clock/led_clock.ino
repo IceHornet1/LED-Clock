@@ -66,14 +66,10 @@ void setup() {
   //setup DS1307 RTC
   I2c.write(rtcAddr, 0x00);
   I2c.read(rtcAddr, 1);
-  if(I2c.receive() & 0x80 == 0x80) {
-    //enable the clock
-    I2c.write(rtcAddr, 0x00, 0x00);
-    //set 24 hour mode
-    //I2c.write(rtcAddr, 0x02, 0x00);
-    //disable squarewave output
-    I2c.write(rtcAddr, 0x07, 0x00);
-  }
+  //enable the clock
+  I2c.write(rtcAddr, 0x00, I2c.receive() & 0b01111111);
+  //disable squarewave output
+  I2c.write(rtcAddr, 0x07, 0x00);
   getTime();
 }
 
@@ -173,7 +169,11 @@ void dispTime() {
   delay(1);
   PORTD = 0b01000000 ^ hour;
   delay(1);
-  PORTD = 0b10000000 ^ tenHour;
+  if(tenHour == 0x00) {
+    PORTD = 0x00;
+  }else {
+    PORTD = 0b10000000 ^ tenHour;
+  }
   delay(1);
 }
 
